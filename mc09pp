@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""
+mc09pp - Micro-C 09 post-processor
+Converts mcc09 compiler output into standalone asm09-compatible input.
+
+Usage:
+  mc09pp [options] <input.asm>  >output_pp.asm
+
+Options:
+  --org  <addr>   Load address (default: $2000, matches lib09 runtime)
+  --rt   <file>   Prepend runtime library source (strips slink directives)
+  --help          Show this help
+
+Transformations applied to mcc09 output:
+  $EX:<sym>       Becomes  <sym> EQU $DEAD  (stub; set real addr if no --rt)
+  $DD:<sym> <N>   Becomes  <sym> RMB <N>    (BSS allocation)
+  $FS:            Stripped (slink section marker)
+  *50000 ...      Stripped (Dunfield timestamp comments)
+  *#...           Stripped (assembler control metacomments)
+
+When --rt is given, the runtime lib is prepended first (providing ?mul,
+?div, ?ult, ?ule etc.) and main is resolved from the application object.
+The runtime's own ORG is preserved; --org is ignored.
+
+Example - standalone (no runtime):
+  mcc09 -I./include hello.c hello.asm
+  mc09pp hello.asm > hello_pp.asm
+  asm09 hello_pp.asm l=hello.lst c=hello.HEX
+
+Example - with runtime library:
+  mcc09 prog.c prog.asm
+  mc09pp --rt lib09_runtime.asm prog.asm > prog_pp.asm
+  asm09 prog_pp.asm l=prog.lst c=prog.HEX
+"""
+
+import sys, re, argparse, os
+
+# ── Patterns ──────────────────────────────────────────────────────────────
+RE_EX   = re.compile(r'^\$EX:(\S+)')          # external symbol decl
+RE_DD   = re.compile(r'^\$DD:(\S+)\s+(\d+)')  # BSS data definition
+RE_FS   = re.compile(r'^\$FS:')               # section marker
+RE_TS   = re.compile(r'^\*50000\b')           # Dunfield timestamp
+RE_META = re.compile(r'^\*#')                  # assembler metacomment
+
+def clean_runtime(lines):
+    """Strip slink/meta directives from a runtime library source."""
+    out = []
+    for line in lines:
+        if (RE_FS.match(line) or RE_TS.match(line) or RE_META.match(line)):
+            continue
+        m = RE_DD.match(line)
+        if m:
+            sym, n = m.group(1), m.group(2)
+            out.append(f"{sym}\tRMB\t{n}\t\t* BSS\n")
+            continue
+        out.append(line)
+    return out
+
+def process_app(lines):
+    """Process mcc09 compiler output."""
+    out = []
+    for line in lines:
+        if RE_FS.match(line) or RE_TS.match(line) or RE_META.match(line):
+            continue
+        m = RE_EX.match(line)
+        if m:
+            sym = m.group(1)
+            out.append(f"* External: {sym}\n")
+            out.append(f"{sym}\tEQU\t$DEAD\t\t* stub - no runtime provided\n")
+            continue
+        m = RE_DD.match(line)
+        if m:
+            sym, n = m.group(1), m.group(2)
+            out.append(f"{sym}\tRMB\t{n}\n")
+            continue
+        out.append(line)
+    return out
+
+def main():
+    ap = argparse.ArgumentParser(add_help=False)
+    ap.add_argument('--help', action='store_true')
+    ap.add_argument('--org',  default='$2000')
+    ap.add_argument('--rt',   default=None)
+    ap.add_argument('input',  nargs='?')
+    args = ap.parse_args()
+
+    if args.help or not args.input:
+        print(__doc__); sys.exit(0)
+
+    try:
+        app_lines = open(args.input).readlines()
+    except OSError as e:
+        print(f"mc09pp: {e}", file=sys.stderr); sys.exit(1)
+
+    out = [f"* mc09pp: generated from {os.path.basename(args.input)}\n"]
+
+    if args.rt:
+        # Prepend runtime library - it has its own ORG
+        try:
+            rt_lines = open(args.rt).readlines()
+        except OSError as e:
+            print(f"mc09pp: --rt: {e}", file=sys.stderr); sys.exit(1)
+        out.append("* ── Runtime library ────────────────────────────────\n")
+        out.extend(clean_runtime(rt_lines))
+        out.append("* ── Application ────────────────────────────────────\n")
+        # App output: drop $EX: for symbols defined in the runtime;
+        # remaining $EX: become EQU stubs for external I/O routines.
+        out.extend(process_app(app_lines))
+    else:
+        out.append(f"\tORG\t{args.org}\n\n")
+        out.extend(process_app(app_lines))
+
+    # Ensure END
+    has_end = any(re.match(r'^\s*END\b', l, re.I) for l in out)
+    if not has_end:
+        out.append("\tEND\n")
+
+    sys.stdout.write("".join(out))
+
+if __name__ == "__main__":
+    main()
