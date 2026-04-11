@@ -1,21 +1,35 @@
 # Dunfield Micro-C 6809 Toolchain — Linux Port
 
-A Linux port of Dave Dunfield's **Micro-C** cross-compiler and **asm09**
-assembler for the Motorola 6809.
+A Linux port of Dave Dunfield's **Micro-C** cross-compiler toolchain for the
+Motorola 6809, originally a DOS-only product.
 
-Original source: [Dunfield Development Services](https://dunfield.themindfactory.com)
-— released as freeware.  See `COPY.TXT` for licence terms.
+Original source: [Dunfield Development Services / Dave's Old Computers](https://dunfield.themindfactory.com)  
+Released as freeware. See `copy.txt` in the original archives for licence terms.
 
 ---
 
-## What's here
+## Tools included
 
-| File | Description |
-|------|-------------|
-| `mcc09` | Micro-C 6809 cross-compiler (K&R C subset → 6809 asm) |
-| `asm09` | Dunfield 6809 cross-assembler (→ Motorola / Intel HEX) |
-| `mc09pp` | Post-processor: converts mcc09 output for standalone assembly |
-| `include/` | Dunfield 6809 runtime headers (`6809io.h`, `stddef.h`, …) |
+| Tool | Source | Description |
+|------|--------|-------------|
+| `cc09` | `cc09.c` | **Command coordinator** — runs the full pipeline in one command |
+| `mcc09` | `compile.c` + `io.c` + `6809cg.c` | Micro-C 6809 cross-compiler (K&R C subset → 6809 asm) |
+| `mco09` | `mco.c` + `6809.mco` | Peephole optimizer (post-processes mcc09 output) |
+| `asm09` | `asm09.c` | 6809 cross-assembler (→ Motorola S-records or Intel HEX) |
+| `slink` | `slink.c` | Source linker — resolves `$EX:` externals from lib09/ |
+| `slib` | `slib.c` | Source library manager (inspect/modify EXTINDEX.LIB) |
+| `sindex` | `sindex.c` | Source index builder (generates EXTINDEX.LIB from .ASM files) |
+| `sconvert` | `sconvert.c` | Source converter (prepares .ASM files for use as library modules) |
+| `mc09pp` | `mc09pp` (Python) | Minimal slink substitute for standalone testing without lib09 |
+
+**Not yet ported** (DOS binaries only, source available):
+- `mcp` — full C preprocessor (cc09 uses it with `-P` flag; mcc09 has a basic built-in preprocessor that handles most cases)
+- `make` — Dunfield's simple make utility (use GNU make instead)
+- `macro` — assembly macro pre-processor (used with cc09's `-M` flag)
+
+**No source, DOS-only:**
+- `ddside` — integrated development environment (GUI, not portable)
+- `srenum`, `sreg`, `touch` — minor utilities (trivially replaced by standard tools)
 
 ---
 
@@ -25,104 +39,175 @@ Original source: [Dunfield Development Services](https://dunfield.themindfactory
 make
 ```
 
-Requires only `gcc` and `make`.  The sources are K&R C; GCC is invoked with
-`-std=gnu89` and a handful of `-Wno-*` flags to silence the expected
-implicit-declaration warnings endemic to the Dunfield codebase.
-
----
-
-## Smoke test
-
-```sh
-make test
-```
-
-Compiles `hello.c`, post-processes the output, assembles it, and prints the
-Motorola S-record HEX file to stdout.
+Requires only `gcc` and `make`. The sources are K&R C compiled with
+`-std=gnu89` and `-Wno-*` flags to suppress the expected implicit-declaration
+warnings endemic to the Dunfield codebase.
 
 ---
 
 ## Toolchain pipeline
 
+### Manual (maximum control)
+
 ```
-  hello.c
+  prog.c
      │
-     ▼  mcc09 -I./include hello.c hello.asm
-  hello.asm          (Dunfield source-linked asm format)
+     ▼  mcc09 -I./include prog.c prog.asm
+  prog.asm          (Dunfield source-linked asm format, contains $EX: directives)
      │
-     ▼  mc09pp 0C000H hello.asm > hello_pp.asm
-  hello_pp.asm       (standalone, $EX: resolved to stubs)
+     ▼  [mco09 prog.asm prog_opt.asm]   (optional peephole optimizer)
      │
-     ▼  asm09 hello_pp.asm l=hello.lst
-  hello.HEX          (Motorola S-records)
-  hello.lst          (annotated listing)
+     ▼  slink prog.asm s=CRT0.ASM l=./lib09 prog_linked.asm
+  prog_linked.asm   (runtime prepended, $EX: resolved, ?-labels uniquified)
+     │
+     ▼  asm09 prog_linked.asm -I l=prog.lst c=prog.HEX
+  prog.HEX          (Intel or Motorola HEX)
+  prog.lst          (annotated listing)
 ```
 
-In Dunfield's original DOS toolchain the middle step is **slink** (source
-linker), which resolves `$EX:` external declarations against a pre-built
-runtime library (`lib09/`).  `mc09pp` is a minimal substitute that inserts
-`EQU $DEAD` stubs — useful for inspecting generated code before you have a
-working runtime.
+### Via cc09 coordinator (recommended)
 
-To use a real runtime, assemble the `lib09/` sources with asm09 and pass all
-the resulting `.HEX` files to a hex-merge tool, or port slink next.
+```sh
+export MCDIR=/path/to/mc09-linux-port   # tools location
+export MCINCLUDE=$MCDIR/include          # target headers
+export MCLIBDIR=$MCDIR/lib09            # target runtime library
+
+cc09 prog.c               # compile, link, assemble → prog.HEX (Motorola)
+cc09 prog.c -Oq           # with optimizer, quiet
+cc09 prog.c -Iq S=CRT0.ASM  # Intel hex, custom startup (e.g. usim09 target)
+```
+
+`cc09` accepts:
+| Flag | Effect |
+|------|--------|
+| `-O` | Run `mco09` peephole optimizer |
+| `-I` | Intel HEX output (default: Motorola S-records) |
+| `-q` | Quiet mode |
+| `-C` | Include C source as comments in assembly |
+| `-S` | Emit symbolic debug information |
+| `-K` | Keep temporary files |
+| `S=file` | Override startup file (passed to slink as `s=`) |
+| `H=path` | Override MCDIR (tool home directory) |
+| `T=prefix` | Temp file prefix |
 
 ---
 
-## Compiler options (`mcc09`)
+## Targets
 
-| Flag | Effect |
-|------|--------|
-| `-I<path>` | Add include search path (or set `MCINCLUDE` env var) |
-| `-q` | Quiet (suppress banner) |
-| `-s` | Emit symbolic debug comments |
-| `-c` | Include source lines as comments in output |
+### Default (`lib09/`)
+Code starts at `$2000`, stack at `$8000`, no reset vector.
+Matches Dunfield's original RAM-based monitor system.
 
-## Assembler options (`asm09`)
+```sh
+MCLIBDIR=./lib09 cc09 prog.c -q
+```
 
-| Flag | Effect |
-|------|--------|
-| `-s` | Include symbol table in listing |
-| `-f` | Full listing (include non-code lines) |
-| `-i` | Intel HEX output (default: Motorola) |
-| `-q` | Quiet |
-| `l=<file>` | Write listing to file (default: stdout) |
-| `c=<file>` | Write HEX to file (default: `<input>.HEX`) |
+### usim09 (`targets/usim09/lib09/`)
+Code in ROM at `$E000`, stack at `$7F00`, MC6850 ACIA at `$C000`,
+reset vector at `$FFFE`. Matches `usim09` hardcoded memory map.
+
+```sh
+MCDIR=. MCINCLUDE=./include MCLIBDIR=./targets/usim09/lib09 \
+  cc09 prog.c -Iq S=CRT0.ASM
+
+echo "" | usim09 prog.HEX
+```
+
+Run `make test-usim` to see the full pipeline including simulator execution.
+
+### Adding a new target
+1. Create `targets/<name>/lib09/` 
+2. Write `CRT0.ASM` — override `6809RLP.ASM` (ORG, LDS, startup, runtime)
+3. Write `SERIO.ASM` — override serial I/O for your UART
+4. Write `6809RLS.ASM` — override suffix (reset vector, heap marker)
+5. Copy remaining files from `lib09/` or symlink them
+6. Build with `MCLIBDIR=./targets/<name>/lib09 cc09 prog.c -Iq S=CRT0.ASM`
+
+The three files that almost always need customisation per target:
+- **CRT0.ASM** — `ORG` (code base), `LDS` (stack top), exit behaviour
+- **SERIO.ASM** — UART base address, status/data register layout, ready bits  
+- **6809RLS.ASM** — reset vector address and value
 
 ---
 
-## Linux porting notes
+## Environment variables
 
-Six bugs fixed to make the DOS K&R sources build and run correctly on
-64-bit Linux:
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MCDIR` | `./` | Directory containing tools (`cc09` searches here first, then `PATH`) |
+| `MCINCLUDE` | — | Include search path for `mcc09` (alternative to `-I` flag) |
+| `MCLIBDIR` | `$MCDIR/lib09` | Runtime library directory for `slink` |
 
-1. **`abort(msg)`** — Dunfield's signature takes a message string; ANSI
-   `abort()` takes none.  Routed via a function-like macro in `portab.h`.
+---
 
-2. **CRLF stripping** — DOS line endings stripped in `MC_fgets` (assembler)
-   and `get_lin` (compiler).
+## make targets
 
-3. **`#CPU` stringize** — K&R token-pasting `"foo"#MACRO"bar"` is not valid
-   in modern cpp.  Replaced with a proper `STRINGIFY()` double-macro.
+| Target | Description |
+|--------|-------------|
+| `make` | Build all eight tools |
+| `make test` | Manual pipeline: hello.c → slink → asm09 → HEX |
+| `make test-usim` | cc09 single-command: hello_clean.c → usim09 simulator |
+| `make clean` | Remove binaries and generated files |
+| `make install` | Install to `PREFIX` (default `/usr/local`) |
 
-4. **`skip_comment()` 16-bit window** (`compile.c`) — The comment scanner uses
-   a two-character sliding window stored in `unsigned x`.  On DOS, `unsigned`
-   is 16 bits, so the 8-bit left-shift stays within the word.  On LP64,
-   `unsigned` is 32 bits and the pattern never matches.  Fixed: `unsigned short x`.
+---
 
-5. **Block comments spanning `#include` boundaries** (`compile.c`) — When
-   `skip_comment()` reaches EOL inside an included file, `read_char()` crosses
-   the file boundary and starts consuming the parent source.  Fixed: track
-   `in_comment` depth; inject a `*/` sentinel on include pop-back so the
-   scanner closes at the file boundary (standard C behaviour).
+## Linux porting notes — all fixes applied
 
-6. **`optr`/`itype`/`otype`/`post` types** (`asm09.c`) — `optr` was `char`,
-   used as an array index into `operand[200]`; values > 127 wrap negative.
-   `itype`/`otype` hold opcode class codes (`0x81`–`0x8a`), which are > 127
-   and read as negative in signed char.  Fixed: `optr` → `int`;
-   `itype`/`otype`/`post` → `unsigned char`.
+### Compiler (`mcc09`): compile.c, io.c, 6809cg.c
 
-7. **`isterm()` missing `\n`** (`asm09.c`) — `fgets()` includes the trailing
-   newline in the buffer.  `eval()` saw `\n` as an unrecognised operator and
-   fired "invalid expression syntax" after every successfully-assembled line.
-   Fixed: added `\n`, `\r`, and `;` to `isterm()`.
+1. **`abort(msg)`** — Dunfield's signature takes a message string; ANSI `abort()` takes none. Routed via `#define abort(msg) die(msg)` macro in `portab.h`.
+
+2. **CRLF stripping** — DOS line endings stripped in `get_lin()` (compiler reads source) and `MC_fgets()` (assembler/linker read source).
+
+3. **`#CPU` stringize** — K&R token-pasting `"foo"#MACRO"bar"` is not valid in modern cpp. Replaced with `STRINGIFY()` double-macro in `io.c` and `mco.c`.
+
+4. **`skip_comment()` 16-bit window** — The `/* */` comment scanner uses a two-character sliding window in `unsigned x`. On DOS `unsigned` is 16 bits; on LP64 it is 32 bits and the `*/` pattern never matches, causing the scanner to consume parent source after `#include` boundaries. Fixed: `unsigned short x`.
+
+5. **Block comments spanning `#include` boundaries** — When `skip_comment()` exhausts an included file, `read_char()` crossed the file boundary and consumed the parent source. Fixed: `in_comment` counter + `*/` sentinel injected on include pop-back.
+
+6. **`-I` include path option** — `f_open()` now strips `<>` and `""` delimiters, searches the `-I` path and `MCINCLUDE` env var in addition to CWD.
+
+### Assembler (`asm09`): asm09.c
+
+7. **`optr` array index** — declared `char`, used as index into `operand[200]`. Values >127 wrap negative. Fixed: `int`.
+
+8. **`itype`/`otype`/`post` opcode fields** — declared `char`, hold values `0x81`–`0x8a` which are >127. Fixed: `unsigned char`.
+
+9. **`isterm()` missing `\n`** — `fgets()` includes the trailing newline; `eval()` saw `\n` as an unknown operator and fired "invalid expression syntax" after every correctly-assembled line. Fixed: added `\n`, `\r`, `\;` to `isterm()`.
+
+10. **`symtab`/`symtop` pointer types** — symbol table declared `char[]` but compared against `unsigned char *` pointers. Fixed: `unsigned char symtab[]`, `unsigned char *symtop`.
+
+### Source linker (`slink`): slink.c, microc.h
+
+11. **`sp_top` initialiser** — `= &string_pool` (pointer-to-array) should be `= string_pool` (array decay).
+
+12. **`DIRSEP` and default library path** — `'\\'` → `'/'`; `"\\MC\\SLIB"` → `"./lib09"`.
+
+13. **`strbeg()`** — Dunfield Micro-C built-in (string prefix test) absent from standard libraries. Added to `microc.h`.
+
+### Library tools (`slib`, `sindex`, `sconvert`): microc.h
+
+14. **`udata[25] = 0`** — invalid array initialiser; fixed to `= ""`.
+
+15. **Multi-char constant option switches** — `case 'q-':` etc. are implementation-defined in GCC. Rewrote as explicit `if`/`else if` chains.
+
+16. **DOS `fopen` modes** — `"rv"`, `"wvq"`, `"rvq"` → `"r"`, `"w"`, `"r"`.
+
+17. **`sindex` directory traversal** — DOS `find_first()`/`find_next()` replaced with POSIX `glob()`.
+
+### Command coordinator (`cc09`): cc09.c
+
+18. **`exec(cmd, args)`** — DOS API; replaced with `mc_exec()` using `fork()`/`execvp()`.
+
+19. **`getenv(name, buf)`** — DOS two-argument form; adapted to POSIX one-argument `getenv()` via inline wrapper.
+
+20. **`link`, `dup` variable names** — clash with POSIX `link()` and `dup()` from `unistd.h`. Renamed to `do_link`, `do_dup`.
+
+21. **Path separators, `.EXE`/`.COM` suffixes** — all updated for Linux.
+
+22. **`MCLIBDIR` env var** — added to decouple the tools directory (`MCDIR`) from the target runtime library (`lib09/`), enabling per-target builds without relocating tools.
+
+### Optimizer (`mco09`): mco.c
+
+23. **`#include "PC86.mco"`** → `#include "6809.mco"` — point at the 6809 optimization table.
