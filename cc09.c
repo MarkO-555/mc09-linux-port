@@ -22,6 +22,8 @@ static int mc_getenv(char *name, char *buf) {
     strcpy(buf, v);
     return 1;
 }
+/* Single-arg getenv returning char* for internal use */
+static char *mc_getenv_str(char *name) { return getenv(name); }
 #define getenv(n,b) mc_getenv((n),(b))
 
 /* Dunfield exec(cmd, args_str) - run cmd with space-separated args */
@@ -150,8 +152,10 @@ noext:
 	/* Pre-process to source file */
 	if(pre) {
 		next_step("Preprocess... ", -1);
-		sprintf(tail,"%s %s l=%s -q -l%s%s",ifile, ofile, mcdir,
-			do_dup ? " -d" : "", mcparm);
+		{ char *_inc = mc_getenv_str("MCINCLUDE");
+		  if(!_inc) _inc = mcdir;
+		  sprintf(tail,"%s %s -I%s -q%s%s",ifile, ofile, _inc,
+			do_dup ? " -d" : "", mcparm); }
 		docmd("mcp");
 		strcpy(ifile, ofile); }
 

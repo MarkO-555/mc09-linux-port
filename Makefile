@@ -28,7 +28,9 @@
 # make install      install to PREFIX (default /usr/local)
 
 PREFIX    ?= /usr/local
-USIM09    ?= usim09
+USIM09    ?= $(shell which usim09 2>/dev/null || \
+               echo /tmp/small-focus-testing-micro-c/modules/usim/usim09)
+
 CC        = gcc
 CFLAGS    = -std=gnu89 \
             -Wno-implicit-int \
@@ -40,7 +42,7 @@ CFLAGS    = -std=gnu89 \
 
 .PHONY: all test test-usim clean install
 
-all: mcc09 asm09 mco09 slink slib sindex sconvert cc09
+all: mcc09 asm09 mco09 slink slib sindex sconvert cc09 mcp
 
 # ── build ──────────────────────────────────────────────────────────────────
 
@@ -67,6 +69,9 @@ sconvert: sconvert.c microc.h
 
 cc09: cc09.c microc.h
 	$(CC) $(CFLAGS) -o $@ cc09.c
+
+mcp: mcp.c microc.h
+	$(CC) $(CFLAGS) -o $@ mcp.c
 
 # ── smoke test: manual pipeline ───────────────────────────────────────────
 
@@ -97,7 +102,7 @@ install: all
 	install -d $(PREFIX)/share/mc09/include
 	install -d $(PREFIX)/share/mc09/lib09
 	install -d $(PREFIX)/share/mc09/targets/usim09/lib09
-	install -m 755 mcc09 asm09 mco09 slink slib sindex sconvert cc09 \
+	install -m 755 mcc09 asm09 mco09 slink slib sindex sconvert cc09 mcp \
 	               $(PREFIX)/bin/
 	install -m 755 mc09pp $(PREFIX)/bin/
 	install -m 644 include/*.h                           $(PREFIX)/share/mc09/include/
@@ -116,7 +121,7 @@ install: all
 # ── clean ──────────────────────────────────────────────────────────────────
 
 clean:
-	rm -f mcc09 asm09 mco09 slink slib sindex sconvert cc09
+	rm -f mcc09 asm09 mco09 slink slib sindex sconvert cc09 mcp
 	rm -f hello.asm hello_linked.asm hello.lst hello.HEX
 	rm -f hello_clean.asm hello_clean.HEX hello_test.asm hello_test_opt.asm
 	rm -f hello_usim_src.asm hello_usim_lnk.asm hello_usim.lst hello_usim.HEX
