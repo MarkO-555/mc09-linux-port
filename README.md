@@ -10,7 +10,7 @@ Released as freeware. See `COPY.TXT` in the original archives for licence terms.
 
 ### Why?
 
-Micro‑C is one of those things that’s really relevant to telling the story of Dave. Since I like telling a story, I figured the best way to do that was to make it easier for more people to actually experience it.
+Micro‑C is one of those things that’s really relevant to telling the story of Dave. Since I like telling a story, I figured the best way to do that was to make it easier for more people to actually experience it.  I do know that Dave even built a VM called the DVM (Dunfield Virtual Machine), and it can compile and run most of his software when you need it.  I do think even though that is the case this is still worthwile, simply in a "Because it was there" capacity.  This is simply just my attempt to get a good thing into the hands of people looking for it, and I hope I've done that here.
 
 Micro‑C is very intentional in how it’s built. It’s bootstrapped, properly structured, and written in its own syntax. Whoever wrote it clearly cared about doing it right, and if you’ve ever read anything Dave has written, you know he cares a lot about doing things well. The C compiler that builds the 6809 kit runs on DOS and doesn’t assume anything about its environment. All the passes and tools are modular, single‑file pieces, most of them tiny .COM programs. That means you can set up a Micro‑C compiler on just about any memory footprint. Each stage writes to standard out, so you can pipe one pass into the next or dump to disk if you’re crawling along on a 256K machine. It’s a bygone way of building a compiler, and that alone makes it interesting.
 
@@ -18,7 +18,7 @@ Micro‑C is also a C compiler for microcomputers first. That sounds strange unt
 
 Micro‑C flips the question around and asks: what can I do with what I have? It’s a small language that’s configurable, scalable, and useful. It lets you write a C program for that custom industrial controller you built for a client 13 years ago, the one that now needs an update because the automation uses a new relay. Micro‑C was written to do Dave’s work, consulting work, and honestly because Dave likes writing his own software. And it shows.
 
-Tools like this fascinate me. They’re worth preserving or at least getting running cleanly on a modern OS. Dave even built a VM called the DVM (Dunfield Virtual Machine), and it can compile and run most of his software when you need it.
+Tools like this fascinate me. They’re worth preserving or at least getting running cleanly on a modern OS. 
 
 ## Tools included
 
@@ -28,6 +28,7 @@ Tools like this fascinate me. They’re worth preserving or at least getting run
 | `mcc09` | `compile.c` + `io.c` + `6809cg.c` | Micro-C 6809 cross-compiler (K&R C subset → 6809 asm) |
 | `mco09` | `mco.c` + `6809.mco` | Peephole optimizer (post-processes mcc09 output) |
 | `mcp` | `mcp.c` | Full C preprocessor — parameterised macros, `##`, `#if` expressions |
+| `macro` | `macro.c` | Assembly source macro processor — `SET`, `MACRO`/`ENDMAC`, `IFEQ`/`IFNE` |
 | `asm09` | `asm09.c` | 6809 cross-assembler (→ Motorola S-records or Intel HEX) |
 | `slink` | `slink.c` | Source linker — resolves `$EX:` externals from lib09/ |
 | `slib` | `slib.c` | Source library manager (inspect/modify EXTINDEX.LIB) |
@@ -37,8 +38,6 @@ Tools like this fascinate me. They’re worth preserving or at least getting run
 
 **Not yet ported** (DOS binaries only, source available):
 - `make` — Dunfield's simple make utility (use GNU make instead — the makefile format is incompatible and the timestamp API is DOS-specific)
-- `macro` — assembly source macro pre-processor used with `cc09 -M`; only needed if you have assembly files written with Dunfield's `MACRO`/`ENDMAC` syntax
-
 **No source, DOS-only:**
 - `ddside` — integrated development environment (GUI, not portable)
 - `srenum`, `sreg`, `touch` — minor utilities with trivial Linux equivalents
@@ -54,6 +53,14 @@ make
 Requires only `gcc` and `make`. The sources are K&R C compiled with
 `-std=gnu89` and a handful of `-Wno-*` flags to suppress the implicit-declaration
 warnings endemic to the Dunfield codebase.
+
+There are still warnings; bad looking ones.  However, these warnings don't cause any issues, 
+and don't seem to cause issue with any existing code. Keep in mind thats something
+that we will still need to tackle.  The goal here was to get it to compile, we will still
+have to work out the warnings at some point but for the most part its done.  
+I feel like this is mostly good enough for production.  The warnings dont translate into 
+the toolchain and are mostly just things that are gotchas you have to be careful about 
+in K&R as you are very much the 'captan' there and not the other way around.
 
 ---
 
@@ -144,6 +151,56 @@ bit manipulation and register access.
 
 ---
 
+## Assembly macro processor (`macro`)
+
+`macro` is a source-level macro processor for assembly files — it runs on
+`.asm` source before `asm09`, expanding `MACRO`/`ENDMAC` blocks and resolving
+`SET` symbol substitutions. It is invoked by `cc09 -M`.
+
+This is distinct from `mcp` (which preprocesses C source). `macro` is needed
+for assembly files that use Dunfield's macro conventions — most notably the
+monitor sources (`mon09.mac`, `hdm09.mac`) which **require** `macro` before
+assembling.
+
+```sh
+# Process a .mac file and assemble it
+macro mon09.mac > mon09.asm
+asm09 mon09.asm l=mon09.lst c=mon09.HEX
+
+# Or via cc09 coordinator (for C code that generates macro-using asm)
+cc09 prog.c -M
+```
+
+`macro` directives:
+
+| Directive | Effect |
+|-----------|--------|
+| `label SET value` | Define/redefine a substitutable symbol |
+| `label ESET expr` | Define symbol from evaluated expression |
+| `label MACRO` / `ENDMAC` | Define a macro (body follows until ENDMAC) |
+| `IFEQ sym,val` | Conditional: assemble if sym == val |
+| `IFNE sym,val` | Conditional: assemble if sym != val |
+| `IF expr` | Conditional: assemble if expression is non-zero |
+| `ELSE` / `ENDIF` | Conditional branches |
+| `INCLUDE file` | Include another file |
+| `ABORT message` | Terminate with error |
+| `PREFIX char` | Set directive prefix character |
+
+Within macro bodies, parameter substitution uses `\1`, `\2`, etc. for
+positional arguments, `\0` for the label, `\$` for a unique call-site
+number (for generating unique local labels), and `\#` for the argument count.
+
+`macro` options:
+
+| Option | Effect |
+|--------|--------|
+| `-L` | Emit `line N` directives for assembler error tracking |
+| `-Pchar` | Set directive prefix character |
+| `NAME=value` | Command-line symbol definition |
+| `>file` | Write output to file (alternative to shell redirect) |
+
+---
+
 ## Targets
 
 ### Default (`lib09/`)
@@ -195,7 +252,7 @@ Run `make test-usim` to see the full pipeline including simulator execution.
 
 | Target | Description |
 |--------|-------------|
-| `make` | Build all ten tools |
+| `make` | Build all eleven tools |
 | `make test` | Manual pipeline: `hello.c` → slink → asm09 → Motorola HEX |
 | `make test-usim` | `cc09` single command → `hello_clean.HEX` → run in usim09 |
 | `make clean` | Remove binaries and generated files |
@@ -272,3 +329,39 @@ Run `make test-usim` to see the full pipeline including simulator execution.
 26. **`##` token-paste operator** — mcp stored `##` literally in macro definitions but had no expansion handler. Added to `resolve_macro()`: strip trailing whitespace from output, skip `##`, skip leading whitespace, then continue — causing adjacent tokens to concatenate directly.
 
 27. **`-I<path>` flag** — mcp used `l=path` for include directories. Added `-I` matching the convention used by `mcc09` and standard C compilers. Added `MCINCLUDE` env var fallback.
+
+### Porting notes (`macro.c`)
+
+28. **`macsub[NUMSMACS]` declaration** — declared as `unsigned char` (flat
+    byte array) but used throughout as an array of pointers (`macsub[i] = freptr`,
+    `strcmp(macsub[i], ...)`, pointer arithmetic). On 16-bit DOS the array was
+    storing 2-byte pointers into what was effectively a contiguous pool; on
+    64-bit Linux this silently truncates 8-byte pointers to 1 byte. Fixed:
+    `unsigned char *macsub[NUMSMACS]`.
+
+29. **`input_ptr` type** — declared in the `unsigned` global block as
+    `*input_ptr` (i.e. `unsigned *`), but used as a character pointer throughout
+    the expression evaluator. On 64-bit Linux, assignments from `unsigned char *`
+    functions truncated the pointer to 32 bits. Fixed: moved to its own
+    `unsigned char *input_ptr` declaration.
+
+30. **Pointer-returning functions with implicit `int` return** — `skip_blank()`,
+    `skip_parm()`, `extract_parm()`, and `process_line()` all return
+    `unsigned char *` but had no explicit return type (K&R implicit `int`).
+    On 64-bit Linux, GCC generates code that sign-extends or zero-fills
+    the 32-bit `int` return to 64 bits, mangling the upper half of every
+    returned pointer. Fixed: explicit return types added to all definitions,
+    plus matching forward declarations before `main()` so call sites see the
+    correct type from the start.
+
+31. **`isend()` missing `\n` and `\r`** — the label/instruction scanner loop
+    `for(linptr = linebuf; !isend(chr=*linptr); ++linptr)` treated newlines as
+    non-terminating, so on Linux where `fgets()` includes `\n` in the buffer
+    it ran off the end of every line into unmapped memory. Fixed: `\n` and `\r`
+    added to `isend()` — same class of fix as `isterm()` in `asm09.c`.
+
+32. **`get_date()`/`get_time()`** — DOS-specific Micro-C built-ins for reading
+    the system clock. Replaced with POSIX `time()` + `localtime()`.
+
+33. **`freptr = &buffer`** — same array-vs-pointer-to-array initialiser issue
+    as `slink`'s `sp_top`. Fixed: `freptr = buffer`.
