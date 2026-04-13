@@ -23,7 +23,7 @@
 
 main(argc, argv)
 	int argc;
-	int *argv[];
+	char *argv[];
 {
 	int i;
 	char name[FILESIZ+1], buffer[LINESIZ+1], *ptr, *ptr1;

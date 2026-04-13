@@ -56,7 +56,7 @@ Opts:	?=file(query)	A=Addfile	I=Index		M=addMiddle\n\
  */
 main(argc, argv)
 	int argc;
-	int *argv[];
+	char *argv[];
 {
 	int cmd, cmdc, i, j;
 	char *cmdv[30], filename[65];

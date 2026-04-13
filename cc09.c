@@ -52,10 +52,10 @@ static int mc_exec(char *cmd, char *args) {
 #define	NOFILE	2		/* EXEC return code for file not found */
 #define	NOPATH	3		/* EXEC return code for path not found */
 
-char mcdir[65], libdir[65], temp[65], ofile[65], tail[150], mcparm[80];
+char mcdir[256], libdir[256], temp[256], ofile[256], tail[1024], mcparm[256];
 char do_link = -1, opt = 0, pre = 0, xasm = -1, verb = -1, intel = 0,
 	lst = 0, del = -1, com = 0, macro = 0, fold = 0, symb = 0,
-	do_dup = 0, *fnptr, *mptr = &mcparm, *startup = 0;
+	do_dup = 0, *fnptr, *mptr = mcparm, *startup = 0;
 
 char htext[] = { "\n\
 Use: CC09 <name> [-acdfiklmopqsx h= s= t=] [symbol=value]\n\n\
@@ -71,10 +71,10 @@ opts:	-Asm		-Comment	-Dupwarn	-Foldliteral\n\
  */
 main(argc, argv)
 	int argc;
-	int *argv[];
+	char *argv[];
 {
 	int i;
-	char ifile[65], *ptr, c;
+	char ifile[256], *ptr, c;
 
 	/* Get default directories from environment */
 	if(!getenv("MCDIR", mcdir))	{	/* Get MICRO-C directory */
@@ -154,14 +154,14 @@ noext:
 		next_step("Preprocess... ", -1);
 		{ char *_inc = mc_getenv_str("MCINCLUDE");
 		  if(!_inc) _inc = mcdir;
-		  sprintf(tail,"%s %s -I%s -q%s%s",ifile, ofile, _inc,
-			do_dup ? " -d" : "", mcparm); }
+		  snprintf(tail, sizeof(tail), "%s %s -I%s -q%s%s",
+			ifile, ofile, _inc, do_dup ? " -d" : "", mcparm); }
 		docmd("mcp");
 		strcpy(ifile, ofile); }
 
 	/* Compile to assembly language */
 	next_step("Compile... ", opt||macro||link);
-	sprintf(tail, "%s %s -q%s%s%s%s", ifile, ofile,
+	snprintf(tail, sizeof(tail), "%s %s -q%s%s%s%s", ifile, ofile,
 		pre ? " -l" : "",	com ? " -c" : "", fold ? " -f" : "",
 		symb ? " -s" : "");
 	docmd("mcc09");
@@ -172,7 +172,7 @@ noext:
 	/* Optimize the assembly language */
 	if(opt) {
 		next_step("Optimize... ", macro||link);
-		sprintf(tail, "%s %s -q", ifile, ofile);
+		snprintf(tail, sizeof(tail), "%s %s -q", ifile, ofile);
 		docmd("mco09");
 		erase(ifile);
 		strcpy(ifile, ofile); }
@@ -180,7 +180,7 @@ noext:
 	/* Run assembler MACRO processor */
 	if(macro) {
 		next_step("Macro... ", link);
-		sprintf(tail,"%s >%s", ifile, ofile);
+		snprintf(tail, sizeof(tail),"%s >%s", ifile, ofile);
 		docmd("macro");
 		erase(ifile);
 		strcpy(ifile, ofile); }
@@ -189,7 +189,7 @@ noext:
 	if(do_link) {
 		next_step("Link... ", xasm);
 		sprintf(mcparm, startup ? " S=%s" : "", startup);
-		sprintf(tail, "%s %s t=%s l=%s -q%s%s",
+		snprintf(tail, sizeof(tail), "%s %s t=%s l=%s -q%s%s",
 			ifile, ofile, temp, libdir, symb ? " -s" : "", mcparm);
 		docmd("slink");
 		erase(ifile);
@@ -198,7 +198,7 @@ noext:
 	/* Assemble into object module */
 		if(xasm) {
 			message("Assemble...\n");
-			sprintf(tail, "%s c=%s l=%s -c%s%s%s", ifile, fnptr, fnptr,
+			snprintf(tail, sizeof(tail), "%s c=%s l=%s -c%s%s%s", ifile, fnptr, fnptr,
 				verb ? "" : "q", intel ? "i" : "", lst ? "fs" : "t");
 			docmd("asm09");
 			erase(ifile); } }
@@ -215,7 +215,7 @@ noext:
 docmd(char *cmd)
 {
 	int rc;
-	char command[65], *ptr, *ptr1, c;
+	char command[512], *ptr, *ptr1, c;
 	static char path[2000];
 
 	ptr = mcdir;						/* First try MC home dir */
@@ -223,7 +223,8 @@ docmd(char *cmd)
 		ptr1 = "";
 
 	do {	/* Search MCDIR & PATH for commands */
-		sprintf(command,"%s%s%s", ptr, "/"+(ptr[strlen(ptr)-1] == '/'), cmd);
+		snprintf(command, sizeof(command), "%s%s%s",
+			ptr, "/"+(ptr[strlen(ptr)-1] == '/'), cmd);
 		rc = exec(command, tail);
 		ptr = ptr1;						/* Point to next directory */
 		while(c = *ptr1) {				/* Advance to end of entry */
@@ -269,7 +270,7 @@ next_step(msg, flag)
 	message(msg);
 
 	if(flag)
-		sprintf(ofile,"%s%s.%u", temp, fnptr, ++tnum);
+		snprintf(ofile, sizeof(ofile), "%s%s.%u", temp, fnptr, ++tnum);
 	else
 		sprintf(ofile,"%s.asm", fnptr);
 }
