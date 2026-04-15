@@ -27,7 +27,7 @@ Everything else is an optional module pulled in on demand.
 
 ### The prefix (`6809RLP.ASM`)
 
-This is what `slink s=CRT0.ASM` overrides. It contains:
+This is what `slink s=6809RLP.ASM` overrides. It contains:
 
 - `?begin` — startup: `LDS` (stack init), `CLR ?heap`, `JSR main`, exit stub
 - `?mul` — 16×16 → 16 bit multiply

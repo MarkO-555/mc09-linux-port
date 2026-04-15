@@ -1,21 +1,26 @@
-*#cpu 6809
+* 6809RLP.ASM - usim09 startup for Dunfield Micro-C 6809
 *
-* DDS MICRO-C 6809 Runtime Library - Prefix file
+* usim09 memory map (hardcoded in main09.cpp):
+*   $0000-$7FFF  32kB RAM
+*   $C000-$C001  MC6850 ACIA
+*   $E000-$FFFF   8kB ROM  <- code lands here
 *
-* Copyright 1991-2005 Dave Dunfield
-* All rights reserved.
+* Reset vector at $FFFE points to ?begin.
+* Stack at $7F00 (top of RAM, below $8000).
 *
-	ORG	$2000		Place code in memory here
-?begin	LDS	#$8000		Initial stack goes here
-	CLR	?heap		Zero out the heap
-	JSR	main		Call user module
-* Return to MON09 by calling the EPROM starting address
-* Wait for and pending serial I/O to complete, and then jump.
-exit	CLRA			Large counter
-	CLRB			"" ""
-?exit1	SUBD	#1		Reduce count
-	BNE	?exit1		Wait for expiry
-	JMP	$E082		Re-enter monitor
+* Use with:
+*   slink prog.asm s=6809RLP.ASM l=targets/usim09/lib09 prog.lnk
+
+	ORG	$E000		ROM base for usim09
+
+* Startup - entered via reset vector
+?begin	LDS	#$7F00		Stack at top of RAM
+	CLR	?heap		Zero heap pointer
+	JSR	main		Call user program
+
+* Return from main - spin forever (no monitor in usim09)
+?exit1	BRA	?exit1
+
 * 16 bit Multiply: D = X * D
 ?mul	PSHS	D,X		Save parameters
 	LDA	1,S		Get low of parm 1

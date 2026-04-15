@@ -84,8 +84,9 @@ main(argc, argv)
 	int argc;
 	char *argv[];
 {
-	unsigned i, count;
-	unsigned char c, *ptr, *files[MAXFILES];
+	unsigned i, count, n, j;
+	unsigned char c, *ptr, *files[MAXFILES], *nptr;
+	unsigned char sym[100];
 	count = 0;
 
 	if(argc < 2)
@@ -109,11 +110,17 @@ main(argc, argv)
 			case 'P' : prefix = *(ptr+2);	continue;
 			} fprintf(stderr,"Invalid option: %s\n", ptr);
 			exit(-1); }
-		while(issymbol(c = *ptr))
-			*ptr++ = toupper(c);
+		nptr = ptr;
+		while(issymbol(c = *nptr))
+			++nptr;
 		if(c == '=') {		/* assign symbol value */
-			*ptr++ = 0;
-			set_symbol(argv[i], ptr); }
+			n = nptr - ptr;
+			if(n >= sizeof(sym))
+				quit("Symbol name too long");
+			for(j=0; j < n; ++j)
+				sym[j] = toupper(ptr[j]);
+			sym[n] = 0;
+			set_symbol(sym, nptr+1); }
 		else					/* process input file */
 			files[count++] = argv[i]; }
 

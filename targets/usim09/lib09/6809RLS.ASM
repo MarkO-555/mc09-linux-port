@@ -2,7 +2,7 @@
 * 6809RLS.ASM - Runtime suffix for usim09
 *
 * Heap starts immediately after code/data.
-* Reset vector points to startup code (?begin in crt0.asm).
+* Reset vector points to startup code (?begin in 6809RLP.ASM).
 *
 ?heap	EQU	*		Heap starts here
 

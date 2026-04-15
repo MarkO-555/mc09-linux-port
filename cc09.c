@@ -75,6 +75,7 @@ main(argc, argv)
 {
 	int i;
 	char ifile[256], *ptr, c;
+	char incbuf[256];
 
 	/* Get default directories from environment */
 	if(!getenv("MCDIR", mcdir))	{	/* Get MICRO-C directory */
@@ -153,14 +154,17 @@ noext:
 	if(pre) {
 		next_step("Preprocess... ", -1);
 		{ char *_inc = mc_getenv_str("MCINCLUDE");
-		  if(!_inc) _inc = mcdir;
+		  if(!_inc) {
+			snprintf(incbuf, sizeof(incbuf), "%s%sinclude",
+				mcdir, (mcdir[strlen(mcdir)-1] == '/') ? "" : "/");
+			_inc = incbuf; }
 		  snprintf(tail, sizeof(tail), "%s %s -I%s -q%s%s",
 			ifile, ofile, _inc, do_dup ? " -d" : "", mcparm); }
 		docmd("mcp");
 		strcpy(ifile, ofile); }
 
 	/* Compile to assembly language */
-	next_step("Compile... ", opt||macro||link);
+	next_step("Compile... ", opt||macro||do_link);
 	snprintf(tail, sizeof(tail), "%s %s -q%s%s%s%s", ifile, ofile,
 		pre ? " -l" : "",	com ? " -c" : "", fold ? " -f" : "",
 		symb ? " -s" : "");
@@ -223,13 +227,14 @@ docmd(char *cmd)
 		ptr1 = "";
 
 	do {	/* Search MCDIR & PATH for commands */
+		int need_slash = *ptr && (ptr[strlen(ptr)-1] != '/');
 		snprintf(command, sizeof(command), "%s%s%s",
-			ptr, "/"+(ptr[strlen(ptr)-1] == '/'), cmd);
+			ptr, need_slash ? "/" : "", cmd);
 		rc = exec(command, tail);
 		ptr = ptr1;						/* Point to next directory */
 		while(c = *ptr1) {				/* Advance to end of entry */
 			++ptr1;
-			if(c == ';') {
+			if((c == ';') || (c == ':')) {
 				*(ptr1 - 1) = 0;		/* Zero terminate */
 				break; } } }
 	while(((rc == NOFILE) || (rc == NOPATH)) && *ptr);

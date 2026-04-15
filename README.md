@@ -83,7 +83,7 @@ on GCC x86). These don't translate into toolchain bugs. K&R C is very much a
      |
      v  [mco09 prog.asm prog_opt.asm]            (optional peephole optimizer)
      |
-     v  slink prog.asm s=CRT0.ASM l=./lib09 prog_linked.asm
+     v  slink prog.asm s=6809RLP.ASM l=./lib09 prog_linked.asm
   prog_linked.asm   (runtime prepended, $EX: resolved, ?-labels uniquified)
      |
      v  asm09 prog_linked.asm -I l=prog.lst c=prog.HEX
@@ -100,7 +100,7 @@ export MCLIBDIR=$MCDIR/lib09            # target runtime library
 
 cc09 prog.c               # compile to prog.HEX (Motorola S-records)
 cc09 prog.c -POq          # preprocess + optimize, quiet
-cc09 prog.c -PIq S=CRT0.ASM  # Intel hex, usim09 startup, quiet
+cc09 prog.c -PIq             # Intel hex, usim09 startup, quiet
 ```
 
 `cc09` flags:
@@ -222,7 +222,7 @@ reset vector at `$FFFE`. Matches the `usim09` simulator's hardcoded memory map.
 
 ```sh
 MCDIR=. MCINCLUDE=./include MCLIBDIR=./targets/usim09/lib09 \
-  cc09 prog.c -Iq S=CRT0.ASM
+  cc09 prog.c -Iq
 
 echo "" | usim09 prog.HEX
 ```
@@ -239,7 +239,7 @@ selects the right IO driver for your hardware.
 mktarget myboard.cfg targets/myboard
 
 MCDIR=. MCINCLUDE=./include MCLIBDIR=./targets/myboard/lib09 \
-  cc09 prog.c -Iq S=CRT0.ASM
+  cc09 prog.c -Iq
 ```
 
 Config file format (uses assembler `SET` syntax — see `targets/usim09/usim09.cfg`
@@ -286,7 +286,7 @@ If your hardware needs something `mktarget` can't express, you can hand-write
 the three files directly:
 
 1. Create `targets/<n>/lib09/` and copy everything from `lib09/` except the three below
-2. Write **`CRT0.ASM`** — `ORG`, `LDS`, startup, exit stub, then append the runtime
+2. Write **`6809RLP.ASM`** — `ORG`, `LDS`, startup, exit stub, then append the runtime
    arithmetic/comparison routines from `lib09/6809RLP.ASM`
 3. Write **`SERIO.ASM`** — implement the eight IO functions for your hardware
 4. Write **`6809RLS.ASM`** — `?heap EQU *`, then optionally `ORG $FFF0` + vector table

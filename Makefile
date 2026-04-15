@@ -19,7 +19,7 @@
 #   export MCDIR=/path/to/mc09-linux-port
 #   export MCINCLUDE=$$MCDIR/include
 #   export MCLIBDIR=$$MCDIR/lib09           # or targets/usim09/lib09
-#   cc09 prog.c [-O optimizer] [-I Intel hex] [S=crt0] [-q quiet]
+#   cc09 prog.c [-O optimizer] [-I Intel hex] [S=6809RLP.ASM] [-q quiet]
 #
 # make              build all tools
 # make test         hello end-to-end (manual pipeline, default lib)
@@ -95,7 +95,7 @@ test-regen: mktarget
 	python3 mktarget targets/usim09/usim09.cfg /tmp/mc09-regen-test
 	@echo "=== Verifying generated target assembles correctly ==="
 	./mcc09 -I./include hello_clean.c hello_regen.asm
-	./slink hello_regen.asm s=CRT0.ASM l=/tmp/mc09-regen-test/lib09 hello_regen_lnk.asm
+	./slink hello_regen.asm s=6809RLP.ASM l=/tmp/mc09-regen-test/lib09 hello_regen_lnk.asm
 	./asm09 hello_regen_lnk.asm -I l=hello_regen.lst c=hello_regen.HEX
 	@grep -c error hello_regen.lst || echo "0 errors"
 	@echo "" | timeout 5 $(USIM09) hello_regen.HEX || true
@@ -104,7 +104,7 @@ test-regen: mktarget
 test-usim: all
 	@echo "=== cc09 -> usim09 (single command) ==="
 	MCDIR=. MCINCLUDE=./include MCLIBDIR=./targets/usim09/lib09 \
-	  ./cc09 hello_clean.c -Iq S=CRT0.ASM
+	  ./cc09 hello_clean.c -Iq
 	@echo ""
 	@echo "=== Running hello_clean.HEX in usim09 ==="
 	@echo "" | timeout 5 $(USIM09) hello_clean.HEX || true
@@ -135,7 +135,7 @@ install: all
 	@echo "  export MCINCLUDE=\$$MCDIR/include"
 	@echo "  export MCLIBDIR=\$$MCDIR/lib09          # default target"
 	@echo "  # or: MCLIBDIR=\$$MCDIR/targets/usim09/lib09  # usim09 target"
-	@echo "  cc09 prog.c -Iq S=CRT0.ASM            # compile for usim09"
+	@echo "  cc09 prog.c -Iq                       # compile for usim09"
 
 # ── clean ──────────────────────────────────────────────────────────────────
 
