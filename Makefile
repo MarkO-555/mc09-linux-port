@@ -29,7 +29,7 @@
 
 PREFIX    ?= /usr/local
 USIM09    ?= $(shell which usim09 2>/dev/null || \
-               echo /tmp/small-focus-testing-micro-c/modules/usim/usim09)
+               echo ./usim09)
 
 CC        = gcc
 CFLAGS    = -std=gnu89 \

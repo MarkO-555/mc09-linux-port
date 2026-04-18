@@ -30,6 +30,7 @@
 #define MAX_DIMS	500			/* maximum # active array dimensions */
 #define MAX_DEFINE	150			/* maximum # define sumbols */
 #define DEFINE_POOL 2000		/* size of define string space */
+#define MAX_TYPEDEF	64			/* maximum # typedef names */
 
 #ifndef DEMO
 	#define MAX_SYMBOL	1000	/* maximum # active symbols */

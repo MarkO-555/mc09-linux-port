@@ -28,7 +28,7 @@ static char *tokens[] = {
 	"int", "unsigned", "char", "static", "extern", "const", "register",
 	"if", "else", "while", "do", "for", "switch", "case",
 	"default", "return", "break", "continue", "goto", "sizeof",
-	"asm", "struct", "union", "void", 0 };			/* end of table */
+	"asm", "struct", "union", "void", "typedef", 0 };		/* end of table */
 
 /* Table defining expression operator precedence */
 static char priority[] = {
@@ -52,6 +52,13 @@ unsigned gvalue;
 char *define_index[MAX_DEFINE], define_pool[DEFINE_POOL],
 	*define_stack[DEF_DEPTH];
 unsigned define_top = 0, define_ptr = 0, define_depth = 0;
+
+/* Typedef table and associated variables */
+char td_name[MAX_TYPEDEF][SYMBOL_SIZE+1];
+unsigned td_type[MAX_TYPEDEF];		/* type bits */
+unsigned td_sptr[MAX_TYPEDEF];		/* symbol index for struct typedef, 0 if scalar */
+unsigned td_top = 0;
+unsigned typedef_ssize = 0;			/* side-channel: ssize when typedef matches a struct */
 
 /* Symbol table and associated variables */
 char s_name[MAX_SYMBOL][SYMBOL_SIZE+1], arg_list[MAX_ARGS][SYMBOL_SIZE+1];
@@ -204,6 +211,9 @@ statement(token)
 		case UNION:		/* Union declaration */
 		case VOID :		/* void declaration */
 			declare(token, 0);
+			break;
+		case TYPEDEF:	/* typedef declaration */
+			define_typedef();
 			break;
 		case IF:
 			check_func();
@@ -1024,9 +1034,72 @@ get_type(token, type)
 				while(test_next(STAR));
 				return type;
 			default:
+				/* Check typedef table before giving up */
+				if(token == SYMBOL) {
+					unsigned i;
+					for(i = 0; i < td_top; ++i) {
+						if(equal_string(gsymbol, td_name[i])) {
+							type |= td_type[i];
+							if(td_sptr[i])		/* struct typedef: pass size via side-channel */
+								typedef_ssize = s_dindex[td_sptr[i]];
+							token = get_token();
+							goto td_next; } } }
 				unget_token(token);
 				return type; }
-		token = get_token(); }
+		token = get_token();	/* normal break: advance to next token */
+	td_next: ;				/* typedef match: token already set above */
+	}
+}
+
+/*
+ * Process a typedef declaration
+ */
+define_typedef()
+{
+	unsigned type, ssize, lstack_save;
+	char is_struct;
+
+	if(td_top >= MAX_TYPEDEF)
+		severe_error("Too many typedefs");
+
+	ssize = 0;
+	is_struct = 0;
+
+	/* Check for struct/union typedef */
+	if(test_next(STRUCT) || test_next(UNION)) {
+		is_struct = -1;
+		lstack_save = local_stack;
+		if(test_next(OCB)) {
+			ssize = define_structure(); }		/* anonymous struct body */
+		else {
+			expect_symbol();
+			special_name();
+			if(lookup()) {
+				check_type(STRUCTURE);
+				ssize = s_dindex[sptr];
+				td_sptr[td_top] = sptr; }		/* point at existing template */
+			else {
+				define_symbol(STRUCTURE|BYTE|REFERENCE, 0);
+				td_sptr[td_top] = sptr;
+				expect(OCB);
+				ssize = s_dindex[td_sptr[td_top]] = define_structure(); } }
+		local_stack = lstack_save;
+		type = BYTE;
+		while(test_next(STAR))
+			++type; }
+	else {
+		type = get_type(get_token(), 0);		/* scalar typedef */
+		td_sptr[td_top] = 0; }
+
+	expect_symbol();							/* alias name */
+	copy_string(td_name[td_top], gsymbol);
+	td_type[td_top] = type;
+	if(is_struct && !td_sptr[td_top]) {		/* anonymous struct: store size in dim_pool */
+		td_sptr[td_top] = global_top;
+		define_symbol(STRUCTURE|BYTE|REFERENCE, 0);
+		s_dindex[td_sptr[td_top]] = ssize; }
+	++td_top;
+	expect(SEMI);
 }
 
 /*
@@ -1043,6 +1116,15 @@ declare(token, type)
 
 	for(;;) {
 		type = get_type(token, type);
+		/* typedef matched a struct: pick up its size via side-channel */
+		if(typedef_ssize) {
+			ssize = typedef_ssize;
+			typedef_ssize = 0;
+			type |= BYTE;
+			if(test_next(SEMI))
+				return;
+			while(test_next(STAR))
+				++type; }
 		if(test_next(STRUCT)) {		/* Structure declaration */
 			union_flag = 0;
 			goto dostruct; }
@@ -1316,6 +1398,7 @@ define_func(type)
 declare_arg()
 {
 	int token;
+	unsigned i;
 	switch(token = get_token()) {
 		case VOID:
 			if(test_next(CRB)) {
@@ -1330,6 +1413,13 @@ declare_arg()
 		case UNION:
 			declare(token, ARGUMENT);
 			return -1; }
+	/* Check if it's a typedef'd type used as a K&R argument declaration */
+	if(token == SYMBOL) {
+		for(i = 0; i < td_top; ++i) {
+			if(equal_string(gsymbol, td_name[i])) {
+				unget_token(token);
+				declare(get_token(), ARGUMENT);
+				return -1; } } }
 	unget_token(token);
 	return 0;
 }
@@ -1699,6 +1789,13 @@ get_value()
 			if(t == SYMBOL) {
 				stack_register(STACK_ACC | STACK_IDX);
 				index_adr(t, v, tt); }
+			else if(t == IN_ACC && (tt & POINTER)) {
+				/* Array/struct was auto-converted to address in D by get_value().
+				 * The address is already in D and the pointer level already
+				 * incremented — just add one more level for the explicit &. */
+				tt = (tt + 1) & ~SYMTYPE;
+				t = IN_ACC;
+				break; }
 			else if(t != INDIRECT)
 				line_error("Invalid '&' operation");
 			stack_register(STACK_ACC);
@@ -1751,8 +1848,13 @@ get_value()
 					tt = s_type[sptr];
 					v = s_dindex[sptr];
 					break;
-				case SYMBOL:	/* A variable name */
+				case SYMBOL:	/* A variable name or typedef name */
 					if(lookup()) {
+						/* struct typedef alias is in symbol table as STRUCTURE */
+						if((s_type[sptr] & SYMTYPE) == STRUCTURE) {
+							tt = s_type[sptr];
+							v = s_dindex[sptr];
+							goto sizeof_done; }
 						check_type(VARIABLE);
 					sizesym:
 						if((tt = s_type[sptr]) & ARRAY) {
@@ -1772,10 +1874,19 @@ get_value()
 							v = 1;
 							goto sizesym; }
 						break; }
+					/* lookup() failed — check typedef table */
+					{ unsigned tdi;
+					  for(tdi = 0; tdi < td_top; ++tdi) {
+						if(equal_string(gsymbol, td_name[tdi])) {
+							tt = td_type[tdi];
+							if(td_sptr[tdi])		/* struct typedef: get struct size */
+								v = s_dindex[td_sptr[tdi]];
+							goto sizeof_done; } } }
 					undef_error();
 					break;
 				default:
 					syntax_error(); }
+			sizeof_done:
 			v *= ((tt & (POINTER | BYTE)) != BYTE) + 1;
 			while(flag--)
 				expect(CRB);

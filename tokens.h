@@ -76,3 +76,4 @@
 #define	STRUCT	66		/* 'struct' */
 #define	UNION	67		/* 'union' */
 #define	VOID	68		/* 'void' */
+#define	TYPEDEF	69		/* 'typedef' */
